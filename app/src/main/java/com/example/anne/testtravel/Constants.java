@@ -6,15 +6,15 @@ package com.example.anne.testtravel;
 
 public class Constants {
 
-    public static final String ACCESS_KEY_ID = "AKIAJSS7YRF36RYHBXUQ";
+    public static final String ACCESS_KEY_ID = "";
 
-    public static final String ACCESS_KEY = "zeqQRIVK3qA1X+EUwt9UHwn7LumGsxFu8d5lcFp+";
+    public static final String ACCESS_KEY = "";
 
     /*
      * You should replace these values with your own. See the README for details
      * on what to fill in.
      */
-    public static final String COGNITO_POOL_ID = "us-west-2:4da4096e-0b8a-4260-aec8-28f4fd04d0ac"; // Keyi Yang
+    public static final String COGNITO_POOL_ID = ""; 
 
     /*
      * Region of your Cognito identity pool ID.
