@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FriendTrip</string>
+    <string name="upload_failure_title">Upload Failure</string>
+    <string name="browser_failure_title">Browser Failure</string>
+    <string name="ok">OK</string>
+    <string name="uploading">Uploading…</string>
+    <string name="sign_in">Sign In…</string>
+    <string name="sign_up">Sign Up…</string>
+    <string name="error">Error!</string>
+    <string name="searching">Searching…</string>
+    <string name="processing">Processing…</string>
+    <string name="facebook_app_id">1816894171861674</string>
+</resources>
