@@ -1,0 +1,197 @@
+import boto3
+import sys
+import json
+import uuid
+from sets import Set
+import base64
+from PIL import Image
+from cStringIO import StringIO
+
+from requests_aws4auth import AWS4Auth
+from elasticsearch import Elasticsearch, RequestsHttpConnection
+from elasticsearch_dsl import Search
+
+
+s3_client = boto3.client('s3')
+reko_client = boto3.client('rekognition')
+
+BasicBucket='data-base-for-created-users'
+DynamicBucket='sourcebucketforimage'
+PhotoBucket='bucket-for-photos'
+
+user_set=Set([])
+login_threshold = 80
+photo_threshold = 60
+
+
+aws_access_key_id = "XXX"
+aws_secret_access_key = "XXX"
+REGION = "us-west-2"
+awsauth = AWS4Auth(aws_access_key_id, aws_secret_access_key, REGION, 'es')
+es = Elasticsearch(
+    hosts=[{'host': 'search-cloud1-yrkyutc4w6mg6khq5sk6dfwomy.us-west-2.es.amazonaws.com', 'port': 443}],
+    use_ssl=True,
+    http_auth=awsauth,
+    verify_certs=True,
+    connection_class=RequestsHttpConnection
+)
+
+size = 256,256
+
+response = s3_client.list_objects(
+	Bucket=BasicBucket,
+	)
+response = response['Contents']
+print('current users:')
+for user in response:
+	user_set.add(user['Key'])
+	print(user['Key'])
+
+def CompareFaces(user_image, target_bucket, login_image, threshold):
+	try:
+		response = reko_client.compare_faces(
+    		SourceImage={
+        		'S3Object': {
+            		'Bucket': BasicBucket,
+            		'Name': user_image,
+        		},
+    		},
+    		TargetImage={
+        		'S3Object': {
+            		'Bucket': target_bucket,
+            		'Name': login_image,
+        		},
+    		},
+    		SimilarityThreshold=threshold,
+		)
+	except:
+		return 0
+	if response['ResponseMetadata']['HTTPStatusCode']==200:
+		if response['FaceMatches']:
+			download_path = '/tmp/{}{}'.format(uuid.uuid4(), user_image)
+			s3_client.download_file(BasicBucket, user_image, download_path)
+			score = response['FaceMatches'][0]['Similarity']
+			print('Matched Face:'+ user_image + 'Score:' + str(score))
+			with Image.open(download_path) as image:
+				#data = image.read()
+				#data = base64.b64encode(data)
+				image.thumbnail(size)
+				output = StringIO()
+				image.save(output, format='JPEG')
+				im_data = output.getvalue()
+				data = base64.b64encode(im_data)
+			return data
+		else:
+			return 0
+
+def es_search(keyword):
+	s = Search().using(es).query("match", Landmark=keyword)
+	response = s.execute()
+	image_list = []
+	print('images:')
+	for hit in response['hits']['hits']:
+		image_list.append(hit['_source']['Name'])
+		print(hit['_source']['Name'])
+	return image_list
+
+def lambda_handler(event, context):
+	if event['event'] == 'login':
+		bucket = DynamicBucket
+		key = event['file']
+		result = CompareFaces(key, bucket, key, login_threshold)
+		name = key
+		response = s3_client.delete_object(
+			Bucket=DynamicBucket,
+			Key=name,
+			)
+		if result == 1:
+			print('user logged in:' + name)
+		return result
+
+	elif event['event'] == 'signup':
+		key = event['file']
+		response = s3_client.list_objects(
+			Bucket=BasicBucket,
+			)
+		response = response['Contents']
+		for user in response:
+			user_set.add(user['Key'])
+		download_path = '/tmp/{}{}'.format(uuid.uuid4(), key)
+		s3_client.download_file(BasicBucket, key, download_path)
+		with Image.open(download_path) as image:
+			#data = image.read()
+			#data = base64.b64encode(data)
+			image.thumbnail(size)
+			output = StringIO()
+			image.save(output, format='JPEG')
+			im_data = output.getvalue()
+			data = base64.b64encode(im_data)
+		print('user sign up:' + key)
+		return data
+
+	elif event['event'] == 'addfriend':
+		key = event['file']
+		user_name = key.split('_')[0] + '.jpg'
+		user_list = []
+		for user in user_set:
+			if CompareFaces(user, PhotoBucket, key, photo_threshold):
+				user_list.append(user)
+			else:
+				pass
+		print('detected users in image:')
+		print user_list
+		image_list = []
+		for user in user_list:
+			download_path = '/tmp/{}{}'.format(uuid.uuid4(), user)
+			s3_client.download_file(BasicBucket, user, download_path)
+			with Image.open(download_path) as image:
+				image.thumbnail(size)
+				output = StringIO()
+				image.save(output, format='JPEG')
+				im_data = output.getvalue()
+				data = base64.b64encode(im_data)
+				image_list.append(data)
+		return image_list
+
+	elif event['event'] == 'gallery':
+		responseList=[]
+		landmark = event['label']
+		user = event['username']
+		if landmark == 'all':
+			response = s3_client.list_objects(
+				Bucket=PhotoBucket,
+				)
+			response = response['Contents']
+			for photo in response:
+				x=photo['Key'].split('_')
+				if x[0]==user:
+					download_path = '/tmp/{}{}'.format(uuid.uuid4(), photo['Key'])
+					s3_client.download_file(PhotoBucket, photo['Key'], download_path)
+					with Image.open(download_path) as image:
+						image.thumbnail(size)
+						output = StringIO()
+						image.save(output, format='JPEG')
+						im_data = output.getvalue()
+						data = base64.b64encode(im_data)
+						responseList.append(data)
+						responseList.append(x[1])
+		else:
+			result = es_search(landmark)
+			for photo in result:
+				upper = photo.split('_')
+				if upper[0]==user:
+					timestamp = upper[1]
+					download_path = '/tmp/{}{}'.format(uuid.uuid4(), photo)
+					s3_client.download_file(PhotoBucket, photo, download_path)
+					with Image.open(download_path) as image:
+						image.thumbnail(size)
+						output = StringIO()
+						image.save(output, format='JPEG')
+						im_data = output.getvalue()
+						data = base64.b64encode(im_data)
+						responseList.append(data)
+						responseList.append(timestamp)
+		return responseList
+
+	else:
+		return 'event error'
